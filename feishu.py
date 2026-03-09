@@ -108,7 +108,10 @@ def create_document(
                 if up_resp.get("code") == 0:
                     file_token = up_resp["data"]["file_token"]
                     # 替换 Markdown 中的图片 URL 为飞书 token
-                    markdown_text = markdown_text.replace(img_url, file_token)
+                    # 使用正则匹配基础 URL，因为 processor.py 可能修改了查询参数
+                    base_url = img_url.split("?")[0]
+                    markdown_text = re.sub(re.escape(base_url) + r"[^\s\)]*", file_token, markdown_text)
+
             except Exception as e:
                 print(f"  ❌ 图片 {idx} 上传失败: {e}")
                 
