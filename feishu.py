@@ -175,12 +175,35 @@ def create_document(
 
                 if up_resp.get("code") == 0:
                     new_token = up_resp["data"]["file_token"]
-                    requests.patch(f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks/{block_id}", headers=_headers(user_token), json={"replace_image": {"token": new_token}}, timeout=15)
+                    
+                    # 使用 Pillow 获取图片真实宽高以防变形
+                    img_width, img_height = 800, 600 # default
+                    try:
+                        from PIL import Image
+                        import io
+                        with Image.open(io.BytesIO(img_bytes)) as img:
+                            img_width, img_height = img.size
+                    except Exception as pil_err:
+                        pass
+
+                    requests.patch(
+                        f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks/{block_id}", 
+                        headers=_headers(user_token), 
+                        json={
+                            "replace_image": {
+                                "token": new_token,
+                                "width": img_width,
+                                "height": img_height
+                            }
+                        }, 
+                        timeout=15
+                    )
                     patched_count += 1
                     print(json.dumps({"status": "image_progress", "current": patched_count, "total": len(image_urls)}), flush=True)
 
             except Exception as e:
                 pass
+
 
 
     # 6. 挂载至 Wiki
