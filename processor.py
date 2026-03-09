@@ -119,7 +119,38 @@ def _to_markdown(html: str) -> str:
 
 def _post_process_markdown(text: str) -> str:
     """Markdown 后处理：清理多余空行、规范格式"""
+    # 替换微信常见的非断行空格
+    text = text.replace('\xa0', ' ').replace('\u200b', '')
+    
+    # 修复标题前多余的空格 (例如 "  ### 标题" -> "### 标题")
+    text = re.sub(r"^[ \t]+(#{1,6}\s)", r"\1", text, flags=re.MULTILINE)
+    
+    # 修复图片后紧跟标题的情况 (例如 "![图片](...)\n### 标题" -> 增加空行)
+    text = re.sub(r"([^\n])\n+(#{1,6}\s)", r"\1\n\n\2", text)
+    
+    # 修复被反引号吞掉的图片 (例如 "`{...}``\n\n![图片](...)`" -> "`{...}`\n\n![图片](...)")
+    text = re.sub(r"(`*)\n*\s*(!\[.*?\]\(.*?\))\s*\n*`+", r"\1\n\n\2\n\n", text)
+    
+    # 修复代码块前后的换行问题，确保 ``` 独占一行
+    text = re.sub(r"([^\n])\s*```", r"\1\n\n```", text)
+    text = re.sub(r"```\s*([^\n])", r"```\n\n\1", text)
+    
+    # 特别针对微信单行代码块包裹了所有内容的情况
+    # 如果发现整个 {} 的 JSON 被放在了单行 ` ` 里，并且中间没有换行符但应该有，
+    # 实际上在上一步 html2text 时由于微信在 code 外面包了 span 导致换行丢失。
+    # 为了恢复 JSON 的可读性，这里尝试做一个基础的括号换行恢复（针对 JSON 格式）
+    def format_json_match(m):
+        content = m.group(1)
+        # 简单美化 JSON，把大括号、逗号等后面加上换行
+        content = re.sub(r"([{\[,])\s*", r"\1\n  ", content)
+        content = re.sub(r"([}\]])", r"\n\1", content)
+        return f"```json\n{content}\n```"
+    
+    text = re.sub(r"`({.*?\s*\"scopes\":.*})`", format_json_match, text)
+
+    
     # 移除连续超过2个空行
+
     text = re.sub(r"\n{3,}", "\n\n", text)
     # 移除行首行尾多余空格
     lines = [line.rstrip() for line in text.splitlines()]
