@@ -27,33 +27,21 @@ REFRESH_URL = "https://open.feishu.cn/open-apis/authen/v2/oauth/token"
 
 
 def get_valid_token() -> str:
-    """获取有效令牌，支持自动刷新和 Tenant 模式"""
+    """获取有效令牌，默认使用 Tenant 模式以实现无人值守"""
     load_dotenv(ENV_PATH)
     
-    # 优先级 1：检查是否开启了 Tenant 静默模式 (机器人身份)
-    if os.getenv("USE_TENANT_MODE") == "true":
+    # 强制优先：使用 Tenant 模式 (机器人身份)
+    # 只要配置了 APP_ID 和 SECRET 即可运行，不再需要浏览器登录
+    try:
         return _get_tenant_token()
+    except Exception as e:
+        # 如果 Tenant Token 获取失败，再尝试回退到用户 Token (保留兼容性)
+        token     = os.getenv("FEISHU_USER_ACCESS_TOKEN", "")
+        expire_at = float(os.getenv("FEISHU_TOKEN_EXPIRE_AT", "0"))
+        if token and time.time() < expire_at - 600:
+            return token
+        raise RuntimeError(f"❌ 无法获取静默令牌且用户授权已失效: {e}")
 
-    token     = os.getenv("FEISHU_USER_ACCESS_TOKEN", "")
-    refresh   = os.getenv("FEISHU_REFRESH_TOKEN", "")
-    expire_at = float(os.getenv("FEISHU_TOKEN_EXPIRE_AT", "0"))
-
-    # 如果 token 存在且未过期，直接返回
-    if token and time.time() < expire_at - 600: # 预留 10 分钟
-        return token
-
-    # 如果已过期但有 refresh_token，尝试静默刷新
-    if refresh:
-        try:
-            print("🔄 Token 已过期，正在后台自动刷新…", flush=True)
-            new_token_data = _refresh_token(refresh)
-            _save_token(new_token_data)
-            return new_token_data["access_token"]
-        except Exception as e:
-            print(f"⚠️ 自动刷新失败: {e}")
-
-    # 只有在所有静默尝试都失败时，才抛出错误或触发登录
-    raise RuntimeError("❌ 令牌已失效且无法自动续期。\n请在本地运行一次：python auth.py login")
 
 
 def _get_tenant_token() -> str:
