@@ -156,9 +156,16 @@ def _save_token(token_data: dict):
     set_key(str(ENV_PATH), "FEISHU_USER_ACCESS_TOKEN", token_data["access_token"])
     set_key(str(ENV_PATH), "FEISHU_REFRESH_TOKEN",token_data.get("refresh_token", ""))
     set_key(str(ENV_PATH), "FEISHU_TOKEN_EXPIRE_AT",   expire_at)
+    
+    # 新增：保存管理员 ID (open_id)
+    if "open_id" in token_data:
+        set_key(str(ENV_PATH), "ADMIN_USER_ID", token_data["open_id"])
+        os.environ["ADMIN_USER_ID"] = token_data["open_id"]
+
     os.environ["FEISHU_USER_ACCESS_TOKEN"] = token_data["access_token"]
     os.environ["FEISHU_REFRESH_TOKEN"]     = token_data.get("refresh_token", "")
     os.environ["FEISHU_TOKEN_EXPIRE_AT"]   = expire_at
+
 
 
 if __name__ == "__main__":

@@ -1,0 +1,11 @@
+{
+  "feeds": [
+    {
+      "name": "本地演习源",
+      "url": "file:///Users/zhanghanlin/Documents/VibeCoding2/wechat2feishu/test_feed.rss",
+      "dest_type": "root",
+      "dest_token": ""
+    }
+  ],
+  "check_interval_minutes": 1
+}

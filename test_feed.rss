@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+<channel>
+  <title>演习情报源</title>
+  <item>
+    <title>【演习】这是一篇模拟自动发现的文章</title>
+    <link>https://mp.weixin.qq.com/s/qNJRqekm6I6Y5KrawcmsmQ</link>
+    <description>测试哨兵巡逻逻辑</description>
+  </item>
+</channel>
+</rss>

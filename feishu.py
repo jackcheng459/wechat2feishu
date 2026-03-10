@@ -68,6 +68,35 @@ def build_feishu_access_url(doc_token: str, wiki_token: str = "", explicit_url: 
     # 3. 兜底构建 Docx 链接
     return f"https://feishu.cn/docx/{doc_token}"
 
+def _grant_management_permission(doc_token: str, user_token: str):
+    """将文档的管理权限赋予管理员用户 (ou_xxxx)"""
+    admin_id = os.getenv("ADMIN_USER_ID", "")
+    if not admin_id:
+        return
+    
+    # 飞书 API：增加协作者权限
+    payload = {
+        "member_type": "openid",
+        "member_id": admin_id,
+        "perm": "full_access" # 管理权限
+    }
+    
+    try:
+        # 先尝试对底层的 Docx 赋权
+        requests.post(
+            f"{FEISHU_BASE}/drive/v1/permissions/{doc_token}/members",
+            headers={"Authorization": f"Bearer {user_token}"},
+            params={"type": "docx"},
+            json=payload,
+            timeout=10
+        )
+        print(f"✅ 已尝试将管理权限赋予用户 {admin_id}", flush=True)
+    except Exception as e:
+        print(f"⚠️ 赋权异常: {e}", flush=True)
+
+
+
+
 def create_document(
     title: str,
     markdown_text: str,
@@ -77,6 +106,7 @@ def create_document(
     image_urls: list[str] | None = None,
     image_data: dict[str, str] | None = None,
 ) -> SaveResult:
+
     """
     两步走转存：原生导入 + 高保真 Patch
     """
@@ -157,6 +187,16 @@ def create_document(
             # 容错提取 Wiki Token
             w_data = wiki_resp.get("data", {})
             wiki_token = w_data.get("wiki_token") or w_data.get("node_token") or w_data.get("node", {}).get("node_token", "")
+            
+            # 如果 API 没返回 wiki_token，主动查询父节点的子节点列表来找到新创建的节点
+            if not wiki_token:
+                time.sleep(1)  # 等待挂载完成
+                children_resp = _api_get(f"/wiki/v2/spaces/{space_id}/nodes", {"page_size": 50, "parent_node_token": parent_node_token}, user_token)
+                for node in children_resp.get("data", {}).get("items", []):
+                    if node.get("obj_token") == doc_token:
+                        wiki_token = node.get("node_token", "")
+                        break
+            
             final_access_url = build_feishu_access_url(doc_token, wiki_token, w_data.get("node", {}).get("obj_edit_url", ""))
 
 
@@ -195,7 +235,13 @@ def create_document(
                     print(json.dumps({"status": "image_progress", "current": patched_count, "total": len(image_urls)}), flush=True)
             except: pass
 
+    # 6. 最后一步：赋予管理权 (如果是 Tenant 模式创建，此步至关重要)
+    _grant_management_permission(doc_token, user_token)
+
+
+
     return SaveResult(
+
         document_url=final_access_url, 
         document_id=doc_token, 
         title=title, 

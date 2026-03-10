@@ -81,6 +81,9 @@ def _clean_html(html: str) -> str:
 
     # 移除含有广告关键词 class 的元素
     for tag in soup.find_all(True):
+        # 跳过无 attrs 的标签（如注释、文档类型声明等）
+        if tag.attrs is None:
+            continue
         classes = tag.get("class", [])
         class_str = " ".join(classes).lower()
         if any(pat in class_str for pat in _REMOVE_CLASS_PATTERNS):
