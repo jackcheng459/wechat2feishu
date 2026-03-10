@@ -1,7 +1,7 @@
 # OpenClaw Skill：微信公众号转存飞书
 
 ## Skill 名称
-`wechat2feishu`
+`WeChat2Feishu-Pro`
 
 ## 描述
 检测到微信公众号链接时，自动抓取文章内容，处理图片防盗链，
@@ -22,7 +22,7 @@ mp.weixin.qq.com
 
 ## 执行脚本路径
 ```
-~/Documents/VibeCoding2/wechat2feishu/
+~/Documents/VibeCoding2/WeChat2Feishu-Pro/
 ```
 
 ---
@@ -32,7 +32,7 @@ mp.weixin.qq.com
 ### Step 1 — 抓取文章
 
 ```bash
-cd ~/Documents/VibeCoding2/wechat2feishu && \
+cd ~/Documents/VibeCoding2/WeChat2Feishu-Pro && \
 .venv/bin/python main.py scrape "{检测到的URL}"
 ```
 
@@ -71,11 +71,11 @@ cd ~/Documents/VibeCoding2/wechat2feishu && \
 
 ```bash
 # 个人云空间文件夹
-cd ~/Documents/VibeCoding2/wechat2feishu && \
+cd ~/Documents/VibeCoding2/WeChat2Feishu-Pro && \
 .venv/bin/python main.py list-folders
 
 # 知识库列表
-cd ~/Documents/VibeCoding2/wechat2feishu && \
+cd ~/Documents/VibeCoding2/WeChat2Feishu-Pro && \
 .venv/bin/python main.py list-wikis
 ```
 
@@ -100,7 +100,7 @@ cd ~/Documents/VibeCoding2/wechat2feishu && \
 
 **存到个人空间文件夹：**
 ```bash
-cd ~/Documents/VibeCoding2/wechat2feishu && \
+cd ~/Documents/VibeCoding2/WeChat2Feishu-Pro && \
 .venv/bin/python main.py save \
   --dest-type folder \
   --dest-token {folder_token}
@@ -108,7 +108,7 @@ cd ~/Documents/VibeCoding2/wechat2feishu && \
 
 **存到知识库：**
 ```bash
-cd ~/Documents/VibeCoding2/wechat2feishu && \
+cd ~/Documents/VibeCoding2/WeChat2Feishu-Pro && \
 .venv/bin/python main.py save \
   --dest-type wiki \
   --dest-token {space_id} \
@@ -134,7 +134,7 @@ cd ~/Documents/VibeCoding2/wechat2feishu && \
 
 每次成功保存后，在 OpenClaw 的记忆文件中追加一条记录：
 
-**文件路径**：`~/Documents/VibeCoding2/wechat2feishu/classification-memory.md`
+**文件路径**：`~/Documents/VibeCoding2/WeChat2Feishu-Pro/classification-memory.md`
 
 **追加格式**：
 ```markdown
