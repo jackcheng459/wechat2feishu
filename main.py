@@ -138,8 +138,11 @@ def cmd_save(dest_type: str, dest_token: str, node_token: str = ""):
             "title":        result.title,
             "document_url": result.document_url,
             "document_id":  result.document_id,
+            "wiki_token":   result.wiki_token,
+            "raw_doc_url":  result.raw_doc_url,
             "message":      f"✅ 转存成功！",
         }, ensure_ascii=False))
+
 
     except Exception as e:
         print(json.dumps({"status": "error", "message": str(e)}))
