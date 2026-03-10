@@ -12,17 +12,18 @@
 ### 1. 安装技能
 在终端运行以下命令（根据你的工具名选择 `openclaw` 或 `gemini`）：
 ```bash
-openclaw skills install https://github.com/jackcheng459/WeChat2Feishu-Pro
+openclaw skills install https://github.com/jackcheng459/WeChat2Feishu-Pro --path skill-pkg/wechat2feishu-pro
 # 或者
-gemini skills install https://github.com/jackcheng459/WeChat2Feishu-Pro
+gemini skills install https://github.com/jackcheng459/WeChat2Feishu-Pro --path skill-pkg/wechat2feishu-pro
 ```
 
 ### 2. 初始化环境
-技能会自动下载到 `~/.openclaw/skills/WeChat2Feishu-Pro`。请进入该目录执行环境安装：
+技能会自动下载。请进入技能目录执行环境安装：
 ```bash
-cd ~/.openclaw/skills/WeChat2Feishu-Pro
+cd ~/.openclaw/skills/wechat2feishu-pro
 bash scripts/setup.sh
 ```
+
 
 ### 3. 配置与授权
 1.  **创建配置**：`cp .env.example .env` 并填入你的 **App ID** 和 **App Secret**。
