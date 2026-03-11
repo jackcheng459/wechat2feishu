@@ -1,7 +1,8 @@
-# 🚀 WeChat2Feishu-Pro (适配 OpenClaw)
+# 🚀 wechat2feishu-pro (适配 OpenClaw)
 ### 微信文章一键转存飞书：高保真、智能路由、无人值守。
 
-**WeChat2Feishu-Pro** 是一款专门为飞书用户打造的自动化剪藏工具。它解决了微信图片防盗链、排版错乱、代码块截断以及 Wiki 权限等核心痛点。
+**wechat2feishu-pro** 是一款专门为飞书用户打造的自动化剪藏工具。
+它解决了微信图片防盗链、排版错乱、代码块截断以及 Wiki 权限等核心痛点。
 
 ---
 
