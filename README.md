@@ -19,7 +19,7 @@ openclaw skills install https://github.com/jackcheng459/WeChat2Feishu-Pro
 ### 2. 初始化环境
 技能会自动下载并配置。请进入技能目录执行环境安装：
 ```bash
-cd ~/.openclaw/skills/wechat2feishu-pro
+cd ~/.openclaw/skills/wechat2feishu-pro-pro
 bash scripts/setup.sh
 ```
 
@@ -47,4 +47,4 @@ bash scripts/setup.sh
 - `exports/`: 本地图文备份。
 
 ## 🤝 鸣谢
-本项目灵感源自 [wechat2feishu](https://github.com/zhaodl1983/wechat2feishu)，并在其基础上进行了 Pro 级深度重构。
+本项目灵感源自 [wechat2feishu-pro](https://github.com/zhaodl1983/wechat2feishu-pro)，并在其基础上进行了 Pro 级深度重构。
