@@ -95,6 +95,29 @@ def _grant_management_permission(doc_token: str, user_token: str):
         print(f"⚠️ 赋权异常: {e}", flush=True)
 
 
+def send_message(receive_id: str, content: str, user_token: str, receive_id_type: str = "open_id"):
+    """发送文本消息给指定用户或群组"""
+    import json
+    payload = {
+        "receive_id": receive_id,
+        "content": json.dumps({"text": content}, ensure_ascii=False),
+        "msg_type": "text",
+    }
+    try:
+        resp = requests.post(
+            f"{FEISHU_BASE}/im/v1/messages",
+            headers=_headers(user_token),
+            params={"receive_id_type": receive_id_type},
+            json=payload,
+            timeout=10
+        ).json()
+        if resp.get("code") == 0:
+            # print(f"✅ 消息已发送至 {receive_id}", flush=True)
+            pass
+        else:
+            print(f"❌ 消息发送失败: {resp.get('msg')} (code={resp.get('code')})", flush=True)
+    except Exception as e:
+        print(f"⚠️ 发送消息异常: {e}", flush=True)
 
 
 def create_document(

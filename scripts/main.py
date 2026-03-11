@@ -163,7 +163,8 @@ def _export_local(cache: dict):
     
     # 1. 准备目录
     safe_title = re.sub(r'[\\/:*?"<>|]', '_', cache["title"])
-    export_root = Path("/Users/zhanghanlin/Documents/VibeCoding2/wechat2feishu/exports")
+    # 修改：指向当前项目根目录下的 exports/ 文件夹
+    export_root = Path(__file__).parent.parent / "exports"
     article_dir = export_root / f"{safe_title}"
     img_dir = article_dir / "images"
     
@@ -261,6 +262,24 @@ def cmd_auth():
     login()
 
 
+def cmd_notify(message: str):
+    """向管理员发送飞书消息通知"""
+    from auth import get_valid_token
+    from feishu import send_message
+    
+    admin_id = os.getenv("ADMIN_USER_ID", "")
+    if not admin_id:
+        print(json.dumps({"status": "error", "message": "未在 .env 中配置 ADMIN_USER_ID"}))
+        return
+
+    try:
+        user_token = get_valid_token()
+        send_message(admin_id, message, user_token)
+        print(json.dumps({"status": "success", "message": f"通知已发送至 {admin_id}"}))
+    except Exception as e:
+        print(json.dumps({"status": "error", "message": str(e)}))
+
+
 def main():
     parser = argparse.ArgumentParser(description="微信公众号 → 飞书文档转存工具")
     sub = parser.add_subparsers(dest="command")
@@ -271,7 +290,6 @@ def main():
     p_save = sub.add_parser("save", help="保存文章到飞书")
     p_save.add_argument("--dest-type", required=True, choices=["folder", "wiki", "root"])
     p_save.add_argument("--dest-token", default="")
-
     p_save.add_argument("--node-token", default="")
 
     sub.add_parser("list-folders")
@@ -282,6 +300,9 @@ def main():
     p_nodes.add_argument("--parent-token", required=True)
 
     sub.add_parser("auth")
+    
+    p_notify = sub.add_parser("notify")
+    p_notify.add_argument("message")
 
     args = parser.parse_args()
 
@@ -297,6 +318,8 @@ def main():
         cmd_list_wiki_nodes(args.space_id, args.parent_token)
     elif args.command == "auth":
         cmd_auth()
+    elif args.command == "notify":
+        cmd_notify(args.message)
     else:
         parser.print_help()
 
