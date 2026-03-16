@@ -135,234 +135,98 @@ def create_document(
     image_urls: list[str] | None = None,
     image_data: dict[str, str] | None = None,
 ) -> SaveResult:
-
-    """
-    两步走转存：原生导入 + 高保真 Patch
-    """
+    """两步走转存：原生导入 + 高保真 Patch"""
     root_token = _get_root_folder(user_token)
 
-    # 1. 上传占位图并替换链接
-    placeholder_to_url = {} # 新增：记录占位符与原图的映射
-    if image_urls:
-        import base64 as _base64
-        for idx, img_url in enumerate(image_urls, 1):
-            # 获取基础 URL (去掉参数)
-            base_url_only = img_url.split("?")[0]
-            placeholder_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
-            placeholder_bytes = _base64.b64decode(placeholder_b64)
-            files = {"file": (f"tmp_{idx}.png", placeholder_bytes, "image/png")}
-            data = {"file_name": f"tmp_{idx}.png", "parent_type": "explorer", "parent_node": root_token, "size": str(len(placeholder_bytes))}
-            up_resp = requests.post(f"{FEISHU_BASE}/drive/v1/files/upload_all", headers={"Authorization": f"Bearer {user_token}"}, data=data, files=files, timeout=30).json()
-            if up_resp.get("code") == 0:
-                file_token = up_resp["data"]["file_token"]
-                image_url_map[img_url] = file_token
-                placeholder_to_url[file_token] = img_url # 记录映射
-                # 改进：使用非贪婪匹配，更精准地替换 Markdown 中的链接
-                pattern = re.escape(base_url_only) + r"[^)\s]*"
-                markdown_text = re.sub(pattern, file_token, markdown_text)
-
-    # 2. 上传 MD 并执行导入 (逻辑不变...)
+    # 1. 上传 MD 并创建导入任务
     safe_name = re.sub(r'[\\/:*?"<>|]', '_', title)
     md_bytes = markdown_text.encode('utf-8')
-    md_resp = requests.post(f"{FEISHU_BASE}/drive/v1/files/upload_all", headers={"Authorization": f"Bearer {user_token}"}, 
-                            data={"file_name": f"{safe_name}.md", "parent_type": "explorer", "parent_node": root_token, "size": str(len(md_bytes))},
-                            files={"file": (f"{safe_name}.md", md_bytes, "text/markdown")}, timeout=30).json()
+    md_resp = requests.post(
+        f"{FEISHU_BASE}/drive/v1/files/upload_all",
+        headers={"Authorization": f"Bearer {user_token}"},
+        data={"file_name": f"{safe_name}.md", "parent_type": "explorer", "parent_node": root_token, "size": str(len(md_bytes))},
+        files={"file": (f"{safe_name}.md", md_bytes, "text/markdown")},
+        timeout=30,
+    ).json()
     _check_response(md_resp, "上传临时文本")
     md_token = md_resp["data"]["file_token"]
 
     mount_key = target.token if target.type == "folder" else root_token
-    import_payload = {"file_extension": "md", "file_token": md_token, "type": "docx", "title": title, "point": {"mount_type": 1, "mount_key": mount_key}}
-    task_resp = requests.post(f"{FEISHU_BASE}/drive/v1/import_tasks", headers=_headers(user_token), json=import_payload).json()
+    task_resp = requests.post(
+        f"{FEISHU_BASE}/drive/v1/import_tasks",
+        headers=_headers(user_token),
+        json={"file_extension": "md", "file_token": md_token, "type": "docx", "title": title, "point": {"mount_type": 1, "mount_key": mount_key}},
+    ).json()
     _check_response(task_resp, "创建转换任务")
     ticket = task_resp["data"]["ticket"]
 
-    # 3. 轮询导入结果 (增加等待时间确保文档块生成)
+    # 2. 轮询导入结果
     doc_token, doc_url = "", ""
     for _ in range(30):
-        time.sleep(3) 
+        time.sleep(3)
         res = requests.get(f"{FEISHU_BASE}/drive/v1/import_tasks/{ticket}", headers=_headers(user_token)).json()
         if res.get("data", {}).get("result", {}).get("job_status") == 0:
             doc_token = res["data"]["result"]["token"]
             doc_url = res["data"]["result"]["url"]
             break
-    if not doc_token: raise RuntimeError("导入超时")
-    
+    if not doc_token:
+        raise RuntimeError("导入超时")
+
     time.sleep(2)
 
-    # 4. Wiki 挂载逻辑 (逻辑保持不变...)
     wiki_token = ""
     final_access_url = doc_url
-    if target.type == "wiki":
-        # ... (Wiki 相关代码)
-        pass
 
-    # 5. 修补图片：并发处理提升速度，防止机器人超时
-    if image_urls:
-        print(json.dumps({"status": "uploading_images", "message": "正在解析结构并并行注入高保真图片..."}), flush=True)
-        # 获取块结构
-        blocks_resp = requests.get(f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks?page_size=500", headers=_headers(user_token)).json()
-        all_blocks = blocks_resp.get("data", {}).get("items", [])
-        image_blocks = [b for b in all_blocks if b["block_type"] == 27]
-        
-        from concurrent.futures import ThreadPoolExecutor
-        def patch_one_image(block):
-            block_id = block["block_id"]
-            current_token = block.get("image", {}).get("token", "")
-            img_url = placeholder_to_url.get(current_token)
-            if not img_url: return False
-
-            # 增加重试逻辑
-            for attempt in range(3):
-                try:
-                    base_img_url = img_url.split("?")[0]
-                    b64 = next((data for u, data in (image_data or {}).items() if u.split("?")[0] == base_img_url), "")
-                    
-                    import base64 as _base64, io
-                    from PIL import Image
-                    img_bytes = _base64.b64decode(b64) if b64 else requests.get(img_url, timeout=10).content
-                    with Image.open(io.BytesIO(img_bytes)) as im:
-                        img_w, img_h, img_format = im.size[0], im.size[1], im.format.lower()
-                    mime, ext = f"image/{img_format}", f".{img_format}"
-                    if img_format == "jpeg": ext = ".jpg"
-
-                    # 策略 1: 优先尝试挂载到 explorer (适合 Wiki/Folder)
-                    up_res = requests.post(f"{FEISHU_BASE}/drive/v1/medias/upload_all", headers={"Authorization": f"Bearer {user_token}"}, 
-                        data={"file_name": f"i_{block_id}{ext}", "parent_type": "explorer", "parent_node": mount_key, "size": str(len(img_bytes)), "extra": json.dumps({"drive_route_token": doc_token})},
-                        files={"file": (f"i{ext}", img_bytes, mime)}, timeout=20).json()
-                    
-                    # 策略 2: 如果策略 1 失败, 回退到 docx_image
-                    if up_res.get("code") != 0:
-                        up_res = requests.post(f"{FEISHU_BASE}/drive/v1/medias/upload_all", headers={"Authorization": f"Bearer {user_token}"}, 
-                            data={"file_name": f"i_{block_id}{ext}", "parent_type": "docx_image", "parent_node": block_id, "size": str(len(img_bytes)), "extra": json.dumps({"drive_route_token": doc_token})},
-                            files={"file": (f"i{ext}", img_bytes, mime)}, timeout=20).json()
-
-                    if up_res.get("code") == 0:
-                        new_token = up_res["data"]["file_token"]
-                        # 在 Patch 前微小延时，确保关系已入库
-                        time.sleep(0.5)
-                        patch_resp = requests.patch(f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks/{block_id}", headers=_headers(user_token), 
-                            json={"replace_image": {"token": new_token, "width": img_w, "height": img_h}}, timeout=10).json()
-                        
-                        if patch_resp.get("code") == 0:
-                            return True
-                        else:
-                            print(f"⚠️ Patch 失败 (Attempt {attempt+1}): {patch_resp.get('msg')}", flush=True)
-                    else:
-                        print(f"⚠️ 上传失败 (Attempt {attempt+1}): {up_res.get('msg')}", flush=True)
-                except Exception as e:
-                    print(f"⚠️ 修补异常 (Attempt {attempt+1}): {e}", flush=True)
-                
-                time.sleep(1) # 重试等待
-            return False
-
-        # 使用线程池加速 (降低并发数确保网络稳定)
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            results = list(executor.map(patch_one_image, image_blocks))
-            patched_count = sum(1 for r in results if r)
-            print(json.dumps({"status": "image_progress", "current": patched_count, "total": len(image_urls)}), flush=True)
-        time.sleep(2)
-        space_id = target.token if target.token.isdigit() else ""
-        parent_node_token = target.node_token
-        
-        # 核心逻辑：如果没传子节点，尝试获取知识库的根节点
-        if not parent_node_token:
-            # 尝试 1：获取空间节点列表
-            root_nodes = _api_get(f"/wiki/v2/spaces/{space_id}/nodes", {"page_size": 50}, user_token)
-            nodes = root_nodes.get("data", {}).get("items", [])
-            
-            # 过滤出可以作为父节点的类型 (wiki, folder, docx 等)
-            valid_parents = [n for n in nodes if n.get("obj_type") in ("wiki", "folder", "docx")]
-            if valid_parents:
-                parent_node_token = valid_parents[0].get("node_token")
-            
-            # 尝试 2：如果列表失败，尝试获取空间基本信息
-            if not parent_node_token:
-                node_resp = _api_get(f"/wiki/v2/spaces/get_node", {"token": target.token, "obj_type": "wiki"}, user_token)
-                parent_node_token = node_resp.get("data", {}).get("node", {}).get("node_token", "")
-
-
-        if not parent_node_token:
-            pass
-        else:
-            wiki_payload = {"obj_type": "docx", "obj_token": doc_token, "parent_node_token": parent_node_token}
-            wiki_resp = requests.post(f"{FEISHU_BASE}/wiki/v2/spaces/{space_id}/nodes/move_docs_to_wiki", headers=_headers(user_token), json=wiki_payload, timeout=15).json()
-            
-            # 容错提取 Wiki Token
-            w_data = wiki_resp.get("data", {})
-            wiki_token = w_data.get("wiki_token") or w_data.get("node_token") or w_data.get("node", {}).get("node_token", "")
-            
-            # 如果 API 没返回 wiki_token，主动查询父节点的子节点列表来找到新创建的节点
-            if not wiki_token:
-                time.sleep(1)  # 等待挂载完成
-                children_resp = _api_get(f"/wiki/v2/spaces/{space_id}/nodes", {"page_size": 50, "parent_node_token": parent_node_token}, user_token)
-                for node in children_resp.get("data", {}).get("items", []):
-                    if node.get("obj_token") == doc_token:
-                        wiki_token = node.get("node_token", "")
-                        break
-            
-            final_access_url = build_feishu_access_url(doc_token, wiki_token, w_data.get("node", {}).get("obj_edit_url", ""))
-
-
-
-
-    # 5. 修补图片
+    # 3. 修补图片：上传真实图片并替换文档中的占位图片块
     if image_urls:
         print(json.dumps({"status": "uploading_images", "message": "正在注入高保真图片..."}), flush=True)
-        blocks_resp = requests.get(f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks?page_size=500", headers=_headers(user_token)).json()
+        blocks_resp = requests.get(
+            f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks?page_size=500",
+            headers=_headers(user_token),
+        ).json()
         image_blocks = [b for b in blocks_resp.get("data", {}).get("items", []) if b["block_type"] == 27]
-        
+
         patched_count = 0
         for i in range(min(len(image_blocks), len(image_urls))):
             block, img_url = image_blocks[i], image_urls[i]
             block_id = block["block_id"]
             try:
                 base_img_url = img_url.split("?")[0]
-                # 优先从本地已缓存的二进制数据中匹配
                 b64 = next((data for u, data in (image_data or {}).items() if u.split("?")[0] == base_img_url), "")
-                
-                import base64 as _base64
-                import io
-                from PIL import Image
-                
-                if b64:
-                    img_bytes = _base64.b64decode(b64)
-                else:
-                    # 备选：如果缓存中没有，尝试实时抓取 (虽然可能被拦截，但作为兜底)
-                    r = requests.get(img_url, timeout=10)
-                    img_bytes = r.content
-                
-                # 精准识别格式和尺寸
-                with Image.open(io.BytesIO(img_bytes)) as im:
-                    img_w, img_h = im.size
-                    img_format = im.format.lower() # png, jpeg, webp
-                
-                mime = f"image/{img_format}"
-                ext = f".{img_format}"
-                if img_format == "jpeg": ext = ".jpg"
 
-                # 核心：上传到飞书 docx_image 空间
+                import base64 as _base64, io
+                from PIL import Image
+
+                img_bytes = _base64.b64decode(b64) if b64 else requests.get(img_url, timeout=10).content
+
+                with Image.open(io.BytesIO(img_bytes)) as im:
+                    img_format = im.format.lower()
+
+                mime = f"image/{img_format}"
+                ext = ".jpg" if img_format == "jpeg" else f".{img_format}"
+
+                # 上传图片：parent_node 必须是图片块的 block_id，否则 replace_image 会报 relation mismatch
                 up_res = requests.post(
-                    f"{FEISHU_BASE}/drive/v1/medias/upload_all", 
-                    headers={"Authorization": f"Bearer {user_token}"}, 
+                    f"{FEISHU_BASE}/drive/v1/medias/upload_all",
+                    headers={"Authorization": f"Bearer {user_token}"},
                     data={
-                        "file_name": f"i_{block_id}{ext}", 
-                        "parent_type": "docx_image", 
-                        "parent_node": doc_token, # 关键：指向文档本身
-                        "size": str(len(img_bytes)), 
-                        "extra": json.dumps({"drive_route_token": doc_token})
+                        "file_name": f"i_{block_id}{ext}",
+                        "parent_type": "docx_image",
+                        "parent_node": block_id,
+                        "size": str(len(img_bytes)),
+                        "extra": json.dumps({"drive_route_token": doc_token}),
                     },
-                    files={"file": (f"i{ext}", img_bytes, mime)}, 
-                    timeout=30
+                    files={"file": (f"i{ext}", img_bytes, mime)},
+                    timeout=30,
                 ).json()
-                
+
                 if up_res.get("code") == 0:
                     patch_resp = requests.patch(
-                        f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks/{block_id}", 
-                        headers=_headers(user_token), 
-                        json={"replace_image": {"token": up_res["data"]["file_token"], "width": img_w, "height": img_h}}, 
-                        timeout=15
+                        f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks/{block_id}",
+                        headers=_headers(user_token),
+                        json={"replace_image": {"token": up_res["data"]["file_token"]}},
+                        timeout=15,
                     ).json()
-                    
                     if patch_resp.get("code") == 0:
                         patched_count += 1
                         print(json.dumps({"status": "image_progress", "current": patched_count, "total": len(image_urls)}), flush=True)
@@ -370,24 +234,56 @@ def create_document(
                         print(f"⚠️ Patch Block 失败: {patch_resp.get('msg')}", flush=True)
                 else:
                     print(f"⚠️ 上传 Media 失败: {up_res.get('msg')}", flush=True)
-                    
+
             except Exception as e:
                 print(f"💥 修补图片时发生异常: {e}", flush=True)
 
-    # 6. 最后一步：赋予管理权 (如果是 Tenant 模式创建，此步至关重要)
-    # 无论是普通文档还是 Wiki 节点，都要确保用户有管理权限
+    # 4. Wiki 挂载
+    if target.type == "wiki":
+        space_id = target.token
+        parent_node_token = target.node_token
+
+        if not parent_node_token:
+            root_nodes = _api_get(f"/wiki/v2/spaces/{space_id}/nodes", {"page_size": 50}, user_token)
+            nodes = root_nodes.get("data", {}).get("items", [])
+            valid_parents = [n for n in nodes if n.get("obj_type") in ("wiki", "folder", "docx")]
+            if valid_parents:
+                parent_node_token = valid_parents[0].get("node_token")
+            if not parent_node_token:
+                node_resp = _api_get(f"/wiki/v2/spaces/get_node", {"token": target.token, "obj_type": "wiki"}, user_token)
+                parent_node_token = node_resp.get("data", {}).get("node", {}).get("node_token", "")
+
+        if parent_node_token:
+            wiki_resp = requests.post(
+                f"{FEISHU_BASE}/wiki/v2/spaces/{space_id}/nodes/move_docs_to_wiki",
+                headers=_headers(user_token),
+                json={"obj_type": "docx", "obj_token": doc_token, "parent_node_token": parent_node_token},
+                timeout=15,
+            ).json()
+            w_data = wiki_resp.get("data", {})
+            wiki_token = w_data.get("wiki_token") or w_data.get("node_token") or w_data.get("node", {}).get("node_token", "")
+
+            if not wiki_token:
+                time.sleep(1)
+                children_resp = _api_get(f"/wiki/v2/spaces/{space_id}/nodes", {"page_size": 50, "parent_node_token": parent_node_token}, user_token)
+                for node in children_resp.get("data", {}).get("items", []):
+                    if node.get("obj_token") == doc_token:
+                        wiki_token = node.get("node_token", "")
+                        break
+
+            final_access_url = build_feishu_access_url(doc_token, wiki_token, w_data.get("node", {}).get("obj_edit_url", ""))
+
+    # 5. 赋予管理权限
     _grant_management_permission(doc_token, user_token, is_wiki=False)
     if wiki_token:
         _grant_management_permission(wiki_token, user_token, is_wiki=True)
 
-
     return SaveResult(
-
-        document_url=final_access_url, 
-        document_id=doc_token, 
-        title=title, 
-        wiki_token=wiki_token, 
-        raw_doc_url=f"https://feishu.cn/docx/{doc_token}"
+        document_url=final_access_url,
+        document_id=doc_token,
+        title=title,
+        wiki_token=wiki_token,
+        raw_doc_url=f"https://feishu.cn/docx/{doc_token}",
     )
 
 def list_folders(user_token: str, parent_token: str = "") -> list[dict]:
