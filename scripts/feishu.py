@@ -196,82 +196,56 @@ def create_document(
         # ... (Wiki 相关代码)
         pass
 
-    # 5. 修补图片：基于文档实际块结构的精确匹配
+    # 5. 修补图片：并发处理提升速度，防止机器人超时
     if image_urls:
-        print(json.dumps({"status": "uploading_images", "message": "正在解析文档结构并注入图片..."}), flush=True)
-        # 获取文档所有块
+        print(json.dumps({"status": "uploading_images", "message": "正在解析结构并并行注入高保真图片..."}), flush=True)
+        # 获取块结构
         blocks_resp = requests.get(f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks?page_size=500", headers=_headers(user_token)).json()
         all_blocks = blocks_resp.get("data", {}).get("items", [])
         image_blocks = [b for b in all_blocks if b["block_type"] == 27]
         
-        patched_count = 0
-        for block in image_blocks:
+        from concurrent.futures import ThreadPoolExecutor
+        def patch_one_image(block):
             block_id = block["block_id"]
-            # 获取该块当前的图片令牌 (占位符)
             current_token = block.get("image", {}).get("token", "")
-            
-            # 通过占位符回溯原始图片 URL
             img_url = placeholder_to_url.get(current_token)
-            if not img_url:
-                continue # 如果不是我们创建的占位符，跳过
-                
+            if not img_url: return False
+
             try:
                 base_img_url = img_url.split("?")[0]
                 b64 = next((data for u, data in (image_data or {}).items() if u.split("?")[0] == base_img_url), "")
                 
-                import base64 as _base64
-                import io
+                import base64 as _base64, io
                 from PIL import Image
-                
-                if b64:
-                    img_bytes = _base64.b64decode(b64)
-                else:
-                    r = requests.get(img_url, timeout=10)
-                    img_bytes = r.content
-                
+                img_bytes = _base64.b64decode(b64) if b64 else requests.get(img_url, timeout=10).content
                 with Image.open(io.BytesIO(img_bytes)) as im:
-                    img_w, img_h = im.size
-                    img_format = im.format.lower()
-                
-                mime = f"image/{img_format}"
-                ext = f".{img_format}"
+                    img_w, img_h, img_format = im.size[0], im.size[1], im.format.lower()
+                mime, ext = f"image/{img_format}", f".{img_format}"
                 if img_format == "jpeg": ext = ".jpg"
 
-                # 核心：上传时使用 explorer 类型并挂载到文件夹，确保权限继承
-                # 这样可以解决 Wiki 挂载后或大尺寸图片的 relation mismatch 
-                up_res = requests.post(
-                    f"{FEISHU_BASE}/drive/v1/medias/upload_all", 
-                    headers={"Authorization": f"Bearer {user_token}"}, 
-                    data={
-                        "file_name": f"i_{block_id}{ext}", 
-                        "parent_type": "explorer", 
-                        "parent_node": mount_key, # 挂载到文档所在的文件夹
-                        "size": str(len(img_bytes)), 
-                        "extra": json.dumps({"drive_route_token": doc_token})
-                    },
-                    files={"file": (f"i{ext}", img_bytes, mime)}, 
-                    timeout=30
-                ).json()
+                # 策略 1: 优先尝试挂载到 explorer (适合 Wiki/Folder)
+                up_res = requests.post(f"{FEISHU_BASE}/drive/v1/medias/upload_all", headers={"Authorization": f"Bearer {user_token}"}, 
+                    data={"file_name": f"i_{block_id}{ext}", "parent_type": "explorer", "parent_node": mount_key, "size": str(len(img_bytes)), "extra": json.dumps({"drive_route_token": doc_token})},
+                    files={"file": (f"i{ext}", img_bytes, mime)}, timeout=20).json()
                 
+                # 策略 2: 如果策略 1 失败 (code=99991663), 回退到 docx_image
+                if up_res.get("code") != 0:
+                    up_res = requests.post(f"{FEISHU_BASE}/drive/v1/medias/upload_all", headers={"Authorization": f"Bearer {user_token}"}, 
+                        data={"file_name": f"i_{block_id}{ext}", "parent_type": "docx_image", "parent_node": block_id, "size": str(len(img_bytes)), "extra": json.dumps({"drive_route_token": doc_token})},
+                        files={"file": (f"i{ext}", img_bytes, mime)}, timeout=20).json()
+
                 if up_res.get("code") == 0:
-                    new_token = up_res["data"]["file_token"]
-                    patch_resp = requests.patch(
-                        f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks/{block_id}", 
-                        headers=_headers(user_token), 
-                        json={"replace_image": {"token": new_token, "width": img_w, "height": img_h}}, 
-                        timeout=15
-                    ).json()
-                    
-                    if patch_resp.get("code") == 0:
-                        patched_count += 1
-                        print(json.dumps({"status": "image_progress", "current": patched_count, "total": len(image_urls)}), flush=True)
-                    else:
-                        print(f"⚠️ Patch 失败 (Block {block_id}): {patch_resp.get('msg')}", flush=True)
-                else:
-                    print(f"⚠️ 上传失败 (Block {block_id}): {up_res.get('msg')}", flush=True)
-                    
-            except Exception as e:
-                print(f"💥 图片处理异常: {e}", flush=True)
+                    patch_resp = requests.patch(f"{FEISHU_BASE}/docx/v1/documents/{doc_token}/blocks/{block_id}", headers=_headers(user_token), 
+                        json={"replace_image": {"token": up_res["data"]["file_token"], "width": img_w, "height": img_h}}, timeout=10).json()
+                    return patch_resp.get("code") == 0
+                return False
+            except: return False
+
+        # 使用线程池加速
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            results = list(executor.map(patch_one_image, image_blocks))
+            patched_count = sum(1 for r in results if r)
+            print(json.dumps({"status": "image_progress", "current": patched_count, "total": len(image_urls)}), flush=True)
         time.sleep(2)
         space_id = target.token if target.token.isdigit() else ""
         parent_node_token = target.node_token

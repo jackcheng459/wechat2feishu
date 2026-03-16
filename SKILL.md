@@ -1,6 +1,6 @@
 ---
 name: wechat2feishu-pro
-description: 高保真微信文章转存专用工具。必须通过执行本地 python 脚本完成，严禁使用内置 MCP 工具。支持自动抓取、Wiki 挂载、情报源自动识别与哨兵投递。
+description: 高保真微信转存。save 命令涉及多图上传，请确保其 exec_timeout 设置在 60s 以上。
 ---
 
 # wechat2feishu-pro 强制执行指南
