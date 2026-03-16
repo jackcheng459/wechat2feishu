@@ -231,14 +231,15 @@ def create_document(
                 ext = f".{img_format}"
                 if img_format == "jpeg": ext = ".jpg"
 
-                # 核心：上传时将 parent_node 绑定到具体的 block_id，彻底解决 relation mismatch
+                # 核心：上传时使用 explorer 类型并挂载到文件夹，确保权限继承
+                # 这样可以解决 Wiki 挂载后或大尺寸图片的 relation mismatch 
                 up_res = requests.post(
                     f"{FEISHU_BASE}/drive/v1/medias/upload_all", 
                     headers={"Authorization": f"Bearer {user_token}"}, 
                     data={
                         "file_name": f"i_{block_id}{ext}", 
-                        "parent_type": "docx_image", 
-                        "parent_node": block_id, 
+                        "parent_type": "explorer", 
+                        "parent_node": mount_key, # 挂载到文档所在的文件夹
                         "size": str(len(img_bytes)), 
                         "extra": json.dumps({"drive_route_token": doc_token})
                     },
