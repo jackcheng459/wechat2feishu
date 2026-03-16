@@ -68,8 +68,8 @@ def build_feishu_access_url(doc_token: str, wiki_token: str = "", explicit_url: 
     # 3. 兜底构建 Docx 链接
     return f"https://feishu.cn/docx/{doc_token}"
 
-def _grant_management_permission(doc_token: str, user_token: str):
-    """将文档的管理权限赋予管理员用户 (ou_xxxx)"""
+def _grant_management_permission(token: str, user_token: str, is_wiki: bool = False):
+    """将文档或Wiki节点的管理权限赋予管理员用户 (ou_xxxx)"""
     admin_id = os.getenv("ADMIN_USER_ID", "")
     if not admin_id:
         return
@@ -82,17 +82,23 @@ def _grant_management_permission(doc_token: str, user_token: str):
     }
     
     try:
-        # 先尝试对底层的 Docx 赋权
-        requests.post(
-            f"{FEISHU_BASE}/drive/v1/permissions/{doc_token}/members",
+        # 重要：对于 Docx 和文件，类型必须是 'file'
+        perm_type = "wiki" if is_wiki else "file"
+        resp = requests.post(
+            f"{FEISHU_BASE}/drive/v1/permissions/{token}/members",
             headers={"Authorization": f"Bearer {user_token}"},
-            params={"type": "docx"},
+            params={"type": perm_type},
             json=payload,
             timeout=10
-        )
-        print(f"✅ 已尝试将管理权限赋予用户 {admin_id}", flush=True)
+        ).json()
+        
+        if resp.get("code") == 0:
+            print(f"✅ 已成功将管理权限赋予用户 {admin_id} ({perm_type})", flush=True)
+        else:
+            print(f"⚠️ 赋权失败 ({perm_type}): {resp.get('msg')} (code={resp.get('code')})", flush=True)
+            
     except Exception as e:
-        print(f"⚠️ 赋权异常: {e}", flush=True)
+        print(f"💥 赋权异常: {e}", flush=True)
 
 
 def send_message(receive_id: str, content: str, user_token: str, receive_id_type: str = "open_id"):
@@ -381,8 +387,10 @@ def create_document(
                 print(f"💥 修补图片时发生异常: {e}", flush=True)
 
     # 6. 最后一步：赋予管理权 (如果是 Tenant 模式创建，此步至关重要)
-    _grant_management_permission(doc_token, user_token)
-
+    # 无论是普通文档还是 Wiki 节点，都要确保用户有管理权限
+    _grant_management_permission(doc_token, user_token, is_wiki=False)
+    if wiki_token:
+        _grant_management_permission(wiki_token, user_token, is_wiki=True)
 
 
     return SaveResult(
