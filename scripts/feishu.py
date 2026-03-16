@@ -135,11 +135,12 @@ def create_document(
     """
     root_token = _get_root_folder(user_token)
 
-    # 1. 上传占位图（略过，逻辑保持不变...）
+    # 1. 上传占位图并替换链接
     if image_urls:
         import base64 as _base64
         for idx, img_url in enumerate(image_urls, 1):
-            base_img_url = img_url.split("?")[0]
+            # 获取基础 URL (去掉参数)
+            base_url_only = img_url.split("?")[0]
             placeholder_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
             placeholder_bytes = _base64.b64decode(placeholder_b64)
             files = {"file": (f"tmp_{idx}.png", placeholder_bytes, "image/png")}
@@ -148,7 +149,10 @@ def create_document(
             if up_resp.get("code") == 0:
                 file_token = up_resp["data"]["file_token"]
                 image_url_map[img_url] = file_token
-                markdown_text = re.sub(re.escape(base_img_url) + r"[^\s\)]*", file_token, markdown_text)
+                # 改进：使用非贪婪匹配，更精准地替换 Markdown 中的链接
+                # 确保替换掉类似 ![img](url?params...) 的整个 URL
+                pattern = re.escape(base_url_only) + r"[^)\s]*"
+                markdown_text = re.sub(pattern, file_token, markdown_text)
 
     # 2. 上传 MD 并执行导入
     safe_name = re.sub(r'[\\/:*?"<>|]', '_', title)
@@ -165,16 +169,19 @@ def create_document(
     _check_response(task_resp, "创建转换任务")
     ticket = task_resp["data"]["ticket"]
 
-    # 3. 轮询导入结果
+    # 3. 轮询导入结果 (增加等待时间确保文档块生成)
     doc_token, doc_url = "", ""
     for _ in range(30):
-        time.sleep(2)
+        time.sleep(3) # 增加到 3 秒
         res = requests.get(f"{FEISHU_BASE}/drive/v1/import_tasks/{ticket}", headers=_headers(user_token)).json()
         if res.get("data", {}).get("result", {}).get("job_status") == 0:
             doc_token = res["data"]["result"]["token"]
             doc_url = res["data"]["result"]["url"]
             break
     if not doc_token: raise RuntimeError("导入超时")
+    
+    # 在 Patch 之前多等一会，确保 Docx 的 blocks 已经完全索引
+    time.sleep(2)
 
     # 4. 重点：Wiki 挂载与容错 Token 提取
     wiki_token = ""

@@ -12,6 +12,27 @@
       "dest_type": "folder",
       "dest_token": "EP2AfdCBrlU3xVdVYbGcSFLHnDd",
       "node_token": ""
+    },
+    {
+      "name": "归藏的AI工具箱",
+      "url": "https://rsshub.app/wechat/msghistory/归藏的AI工具箱",
+      "dest_type": "folder",
+      "dest_token": "EP2AfdCBrlU3xVdVYbGcSFLHnDd",
+      "node_token": ""
+    },
+    {
+      "name": "数字生命卡兹克",
+      "url": "https://rsshub.app/wechat/msghistory/数字生命卡兹克",
+      "dest_type": "folder",
+      "dest_token": "EP2AfdCBrlU3xVdVYbGcSFLHnDd",
+      "node_token": ""
+    },
+    {
+      "name": "宝玉AI",
+      "url": "https://rsshub.app/wechat/msghistory/宝玉AI",
+      "dest_type": "folder",
+      "dest_token": "EP2AfdCBrlU3xVdVYbGcSFLHnDd",
+      "node_token": ""
     }
   ],
   "check_interval_minutes": 1
